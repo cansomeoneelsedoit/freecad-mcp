@@ -42,6 +42,7 @@ RUN micromamba create -y -p /opt/aec -c conda-forge --strict-channel-priority \
     && /opt/aec/bin/python -m pip install --no-cache-dir ifctester ifcdiff ifcpatch \
     && micromamba clean -a -y \
     && find /opt/aec -name '*.a' -delete \
+    && rm -f /opt/aec/lib/libpdal_plugin_reader_hdf.so* /opt/aec/lib/libpdal_plugin_reader_icebridge.so* \
     && rm -rf /opt/aec/share/doc /opt/aec/share/man /opt/aec/include
 
 # ---- 2. Runtime

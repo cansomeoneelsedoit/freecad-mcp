@@ -69,7 +69,11 @@ def _child_env() -> dict[str, str]:
     env.update(
         {
             "QT_QPA_PLATFORM": "offscreen",
-            "PYTHONPATH": HELPERS_DIR,
+            "PYTHONPATH": os.pathsep.join(
+                [HELPERS_DIR, str(AEC_PREFIX / "share" / "qgis" / "python"), str(AEC_PREFIX / "share" / "qgis" / "python" / "plugins")]
+            ),
+            # conda's newer libstdc++ / ICU first, not the Debian ones
+            "LD_LIBRARY_PATH": str(AEC_PREFIX / "lib"),
             "PYTHONUNBUFFERED": "1",
             "AEC_WORKSPACE": str(WORKSPACE),
             "PATH": f"{AEC_PREFIX / 'bin'}:{env.get('PATH', '/usr/bin:/bin')}",
