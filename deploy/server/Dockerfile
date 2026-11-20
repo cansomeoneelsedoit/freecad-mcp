@@ -24,7 +24,25 @@ RUN set -eu; \
     chmod +x freecad.AppImage; \
     ./freecad.AppImage --appimage-extract >/dev/null; \
     mv squashfs-root freecad; \
-    rm freecad.AppImage freecad.sha256
+    rm freecad.AppImage freecad.sha256; \
+    ./freecad/usr/bin/python -m pip install --no-cache-dir "ezdxf>=1.3"
+
+# ---- 1b. AEC / GIS stack: QGIS, PDAL, IfcOpenShell, ezdxf, GDAL (conda-forge, one env)
+FROM debian:bookworm-slim AS aec
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl bzip2 \
+    && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    case "${TARGETARCH:-amd64}" in amd64) plat=linux-64 ;; arm64) plat=linux-aarch64 ;; esac; \
+    curl -fsSL --retry 3 "https://micro.mamba.pm/api/micromamba/${plat}/latest" | tar -xj -C /usr/local bin/micromamba
+ENV MAMBA_ROOT_PREFIX=/opt/mamba
+RUN micromamba create -y -p /opt/aec -c conda-forge --strict-channel-priority \
+        "python=3.12" "qgis>=3.34" "pdal>=2.6" python-pdal "ifcopenshell>=0.8" "ezdxf>=1.3" \
+        gdal shapely numpy pandas openpyxl matplotlib \
+    && /opt/aec/bin/python -m pip install --no-cache-dir ifctester ifcdiff ifcpatch \
+    && micromamba clean -a -y \
+    && find /opt/aec -name '*.a' -delete \
+    && rm -rf /opt/aec/share/doc /opt/aec/share/man /opt/aec/include
 
 # ---- 2. Runtime
 FROM python:3.12-slim-bookworm
@@ -37,6 +55,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=freecad /opt/freecad /opt/freecad
+COPY --from=aec /opt/aec /opt/aec
+COPY deploy/server/aec.py /opt/aec-helpers/aec.py
 
 # MCP server
 COPY pyproject.toml README.md LICENSE /src/
@@ -55,7 +75,11 @@ ENV HOME=/home/mcp \
     DISPLAY=:99 \
     QT_QPA_PLATFORM=xcb \
     LIBGL_ALWAYS_SOFTWARE=1 \
-    PORT=8796
+    PORT=8796 \
+    AEC_STACK=1 \
+    AEC_PREFIX=/opt/aec \
+    AEC_WORKSPACE=/home/mcp/work \
+    QGIS_PREFIX_PATH=/opt/aec
 
 # Put the add-on where FreeCAD looks for user add-ons, and switch its RPC auto-start on.
 RUN set -eu; \

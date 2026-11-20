@@ -961,6 +961,10 @@ def main():
     logger.info(f"Connecting to FreeCAD RPC server at: {state.rpc_host}")
     if state.auth_token:
         logger.info("Auth token configured for RPC connection")
+    from . import aec_tools
+    if aec_tools.enabled():
+        aec_tools.register(mcp)
+        logger.warning("AEC stack tools enabled (workspace %s)", aec_tools.WORKSPACE)
     if args.transport == "stdio":
         mcp.run()
     else:

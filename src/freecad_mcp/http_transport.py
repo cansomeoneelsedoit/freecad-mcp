@@ -171,6 +171,10 @@ def build_app(
         app = builder()
     if token:
         app = BearerTokenMiddleware(app, token)
+        from . import aec_tools
+        if aec_tools.enabled():
+            # Signed, expiring /files/ links work without the bearer token.
+            app = aec_tools.SignedDownloadMiddleware(app, token)
     return app
 
 
