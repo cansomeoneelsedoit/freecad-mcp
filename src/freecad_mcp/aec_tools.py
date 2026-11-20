@@ -193,7 +193,9 @@ IFC / BIM (IfcOpenShell, FreeCAD BIM)
 - Validate: ifctester against an IDS file -> HTML/JSON report
 - Compare versions: ifcdiff old.ifc new.ifc -> JSON of changed elements
 - Convert: run_aec_command IfcConvert in.ifc out.glb  (or .obj/.dae/.stp/.svg plans)
-- FreeCAD: import IFC through the BIM workbench (importIFC.insert) to edit as solids.""",
+- FreeCAD: do NOT use importIFC (its bundled ifcopenshell mismatch fails with
+  'Settings' has no attribute 'USE_BREP_DATA'). Instead run_aec_command IfcConvert
+  in.ifc out.stp, then in FreeCAD Part.read(path) and add each solid as a Part::Feature.""",
     "gis_context": """\
 GIS context and coordinates (QGIS / GDAL)
 - from aec import init_qgis; qgs = init_qgis(); then processing.run('native:...', {...})
