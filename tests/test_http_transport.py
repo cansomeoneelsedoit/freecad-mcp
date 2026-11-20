@@ -55,6 +55,13 @@ def test_allowed_hosts() -> None:
     assert "127.5.5.5:8000" in build_allowed_hosts("127.5.5.5", 8000)
 
 
+def test_allowed_host_without_port_also_matches_bare_name() -> None:
+    # Behind a TLS reverse proxy the Host header carries no port.
+    hosts = build_allowed_hosts("0.0.0.0", 8000, ["cad.example.com", "other:9000"])
+    assert "cad.example.com" in hosts and "cad.example.com:8000" in hosts
+    assert "other" not in hosts
+
+
 @pytest.fixture(params=["streamable-http", "sse"])
 def fresh_mcp(request: pytest.FixtureRequest):
     # build_app mutates settings; use a throwaway server instead of the global.

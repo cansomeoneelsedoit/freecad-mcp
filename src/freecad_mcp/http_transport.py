@@ -93,19 +93,24 @@ def build_allowed_hosts(
 
     Loopback names are always accepted. A specific (non 0.0.0.0/::) listen
     address is added too. Anything else, such as a LAN name, must be passed
-    explicitly via *extra_hosts*.
+    explicitly via *extra_hosts*. An extra host given without a port is
+    accepted both with the listen port and bare, because behind a reverse
+    proxy (HTTPS on 443) clients send the name with no port at all.
     """
     hosts = [f"localhost:{listen_port}", f"127.0.0.1:{listen_port}", f"[::1]:{listen_port}"]
     if listen_host not in ("0.0.0.0", "::"):
         hosts.append(f"[{listen_host}]:{listen_port}" if ":" in listen_host else f"{listen_host}:{listen_port}")
     for host in extra_hosts:
-        hosts.append(host if ":" in host.rpartition("]")[2] else f"{host}:{listen_port}")
+        if ":" in host.rpartition("]")[2]:
+            hosts.append(host)
+        else:
+            hosts.extend([f"{host}:{listen_port}", host])
     return list(dict.fromkeys(hosts))
 
 
 def build_allowed_origins(allowed_hosts: Sequence[str]) -> list[str]:
-    """Browser Origin values matching *allowed_hosts*."""
-    return [f"http://{host}" for host in allowed_hosts]
+    """Browser Origin values matching *allowed_hosts* (plain and TLS)."""
+    return [f"{scheme}://{host}" for host in allowed_hosts for scheme in ("http", "https")]
 
 
 class BearerTokenMiddleware:
