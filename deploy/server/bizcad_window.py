@@ -21,6 +21,15 @@ def _fill():
 
 def _start():
     _fill()
+    # Browser-friendly mouse: left-drag rotates, right-drag pans, wheel zooms.
+    import FreeCAD
+    view = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+    view.SetString("NavigationStyle", "Gui::GestureNavigationStyle")
+    try:
+        if Gui.ActiveDocument and Gui.ActiveDocument.ActiveView:
+            Gui.ActiveDocument.ActiveView.setNavigationType("Gui::GestureNavigationStyle")
+    except Exception:
+        pass
     try:
         Gui.activateWorkbench("PartDesignWorkbench")
     except Exception:
