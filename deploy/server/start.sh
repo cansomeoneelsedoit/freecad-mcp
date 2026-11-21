@@ -9,8 +9,18 @@ if [ "${#FREECAD_MCP_LISTEN_TOKEN}" -lt 32 ]; then
     exit 1
 fi
 
-Xvfb :99 -screen 0 1600x1000x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+export BIZCAD_SCREEN="${BIZCAD_SCREEN:-1600x1000}"
+Xvfb :99 -screen 0 "${BIZCAD_SCREEN}x24" -nolisten tcp >/tmp/xvfb.log 2>&1 &
 i=0; while [ $i -lt 50 ] && [ ! -e /tmp/.X11-unix/X99 ]; do i=$((i+1)); sleep 0.2; done
+
+# Live view: VNC on 127.0.0.1 only; the MCP server's /live/ws bridges it after a key check.
+(
+    while true; do
+        x11vnc -display :99 -localhost -rfbport 5900 -nopw -shared -forever -quiet \
+            -noxdamage -cursor arrow >>/tmp/x11vnc.log 2>&1 || true
+        sleep 2
+    done
+) &
 
 (
     # FreeCAD must never see the MCP token

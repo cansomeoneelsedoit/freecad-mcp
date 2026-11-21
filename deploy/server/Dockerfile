@@ -48,7 +48,7 @@ RUN micromamba create -y -p /opt/aec -c conda-forge --strict-channel-priority \
 # ---- 2. Runtime
 FROM python:3.12-slim-bookworm
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        tini xvfb xauth \
+        tini xvfb xauth x11vnc novnc \
         libgl1 libegl1 libgl1-mesa-dri libglu1-mesa libopengl0 \
         libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
         libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 libxcb-xfixes0 \
@@ -63,10 +63,11 @@ COPY deploy/server/aec.py /opt/aec-helpers/aec.py
 COPY pyproject.toml README.md LICENSE /src/
 COPY addon/FreeCADMCP/package.xml /src/addon/FreeCADMCP/package.xml
 COPY src /src/src
-RUN pip install --no-cache-dir /src && rm -rf /src
+RUN pip install --no-cache-dir /src "websockets>=13" && rm -rf /src
 
 RUN useradd --create-home --uid 1000 mcp && mkdir -p /home/mcp/work && chown mcp:mcp /home/mcp/work
 COPY --chown=mcp:mcp addon/FreeCADMCP /opt/freecad-mcp-addon/FreeCADMCP
+COPY --chown=mcp:mcp deploy/server/bizcad_window.py /opt/freecad-mcp-addon/bizcad_window.py
 COPY --chmod=0755 deploy/server/start.sh /usr/local/bin/freecad-mcp-start
 COPY --chmod=0755 deploy/server/healthcheck.py /usr/local/bin/freecad-mcp-healthcheck
 
@@ -88,6 +89,8 @@ RUN set -eu; \
     echo "FreeCAD user dir: $userdir"; test -n "$userdir"; \
     mkdir -p "$userdir/Mod"; \
     cp -r /opt/freecad-mcp-addon/FreeCADMCP "$userdir/Mod/"; \
+    mkdir -p "$userdir/Mod/BizcadWindow"; \
+    cp /opt/freecad-mcp-addon/bizcad_window.py "$userdir/Mod/BizcadWindow/InitGui.py"; \
     printf '{"remote_enabled": false, "allowed_ips": "127.0.0.1", "auto_start_rpc": true, "auth_token": ""}\n' \
         > "$userdir/freecad_mcp_settings.json"; \
     echo "$userdir" > /home/mcp/.freecad-userdir

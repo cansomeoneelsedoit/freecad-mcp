@@ -157,6 +157,9 @@ ONE shared workspace folder (paths are relative to it) is used by every tool:
   (+ ifcopenshell.util / api / ifctester / ifcdiff / ifcpatch / ifcclash where installed),
   ezdxf, gdal/ogr, shapely, numpy. `from aec import *` gives init_qgis(), WORK.
 - run_aec_command: pdal, qgis_process, IfcConvert, GDAL CLIs (no shell).
+Live view: get_live_view_link() gives FreeCAD's screen in a browser; open it for the
+person at the start of any FreeCAD job (BizGPT: browser_navigate the Browser pane to it)
+so they can watch and take over with the mouse. Leave the result open in FreeCAD.
 Files in: fetch_file(url) or upload_file(...). Files out: get_download_link(path)
 (give the user that link) or read_file_text for small text results (DXF, IFC, CSV, JSON).
 Pick the lightest tool: plain 2D drawing -> ezdxf; BIM data -> ifcopenshell; solids,
@@ -368,6 +371,20 @@ def register(mcp: Any) -> None:
             return json.dumps({"error": str(e)})
 
     @reg.tool()
+    def get_live_view_link(hours: int = 8) -> str:
+        """Link to FreeCAD's live screen in a browser, so the person can watch the model
+        being built and take over with mouse and keyboard (click into the view first).
+
+        Open it for the person: in BizGPT, navigate the Browser pane to this URL
+        (browser_navigate) so FreeCAD shows on the right of the chat, and also give
+        them the link. It is a key to the FreeCAD session: never post it publicly.
+        Valid for `hours` (max 24)."""
+        if not _download_secret():
+            return json.dumps({"error": "live view is not configured on this server"})
+        return json.dumps({"url": live_view_link(hours), "hours": max(1, min(hours, 24)),
+                           "tip": "Use FreeCAD's View menu > Standard views, or the mouse, to look around."})
+
+    @reg.tool()
     def get_download_link(path: str, hours: int = 24) -> str:
         """Make a time-limited HTTPS download link for a workspace file, to give to the user."""
         try:
@@ -436,6 +453,113 @@ class SignedDownloadMiddleware:
             while chunk := f.read(1024 * 1024):
                 await send({"type": "http.response.body", "body": chunk, "more_body": True})
         await send({"type": "http.response.body", "body": b""})
+
+
+# --------------------------------------------------------------------------- live view
+
+NOVNC_DIR = Path(os.environ.get("AEC_NOVNC_DIR", "/usr/share/novnc")).resolve()
+VNC_ADDR = ("127.0.0.1", int(os.environ.get("AEC_VNC_PORT", "5900")))
+
+
+def _live_sig(expires: int) -> str:
+    return _sign(_SECRET or b"", "live-view", expires)
+
+
+def live_view_link(hours: int = 8) -> str:
+    expires = int(time.time()) + max(1, min(hours, 24)) * 3600
+    key = urllib.parse.quote(f"live/ws?k={expires}.{_live_sig(expires)}", safe="")
+    host = os.environ.get("PUBLIC_HOST", "")
+    base = f"https://{host}" if host else ""
+    return (f"{base}/live/vnc.html?autoconnect=1&reconnect=1&resize=scale&show_dot=1"
+            f"&view_only=0&path={key}")
+
+
+class LiveViewMiddleware:
+    """FreeCAD's screen in a browser: /live/* serves the noVNC page (static, no
+    secrets) and /live/ws?k=<expires>.<sig> bridges a WebSocket to the local VNC
+    server, only with a valid, unexpired signed key."""
+
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        path = scope.get("path", "")
+        if not path.startswith("/live/"):
+            await self.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket" and path == "/live/ws":
+            await self._bridge(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            return
+        rel = path[len("/live/"):] or "vnc.html"
+        p = (NOVNC_DIR / rel).resolve()
+        ok = scope["method"] in ("GET", "HEAD") and (p == NOVNC_DIR or NOVNC_DIR in p.parents) and p.is_file()
+        if not ok:
+            await send({"type": "http.response.start", "status": 404, "headers": [(b"content-type", b"text/plain")]})
+            await send({"type": "http.response.body", "body": b"Not found"})
+            return
+        ctype = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+        if p.suffix == ".js":
+            ctype = "application/javascript"
+        body = p.read_bytes()
+        await send({"type": "http.response.start", "status": 200, "headers": [
+            (b"content-type", ctype.encode()), (b"content-length", str(len(body)).encode()),
+            (b"cache-control", b"public, max-age=3600")]})
+        await send({"type": "http.response.body", "body": b"" if scope["method"] == "HEAD" else body})
+
+    async def _bridge(self, scope: Any, receive: Any, send: Any) -> None:
+        import asyncio
+
+        query = urllib.parse.parse_qs(scope.get("query_string", b"").decode())
+        key = (query.get("k") or [""])[0]
+        expires_s, _, sig = key.partition(".")
+        try:
+            expires = int(expires_s)
+        except ValueError:
+            expires = 0
+        first = await receive()  # websocket.connect
+        if first.get("type") != "websocket.connect" or expires < time.time() or not hmac.compare_digest(sig, _live_sig(expires)):
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        try:
+            reader, writer = await asyncio.open_connection(*VNC_ADDR)
+        except OSError:
+            await send({"type": "websocket.close", "code": 1011})
+            return
+        offered = [s.strip() for s in scope.get("subprotocols", [])]
+        accept: dict[str, Any] = {"type": "websocket.accept"}
+        if "binary" in offered:
+            accept["subprotocol"] = "binary"
+        await send(accept)
+
+        async def vnc_to_ws() -> None:
+            while chunk := await reader.read(65536):
+                await send({"type": "websocket.send", "bytes": chunk})
+
+        async def ws_to_vnc() -> None:
+            while True:
+                msg = await receive()
+                if msg["type"] == "websocket.disconnect":
+                    return
+                data = msg.get("bytes")
+                if data is None and msg.get("text") is not None:
+                    data = base64.b64decode(msg["text"])
+                if data:
+                    writer.write(data)
+                    await writer.drain()
+
+        tasks = [asyncio.ensure_future(vnc_to_ws()), asyncio.ensure_future(ws_to_vnc())]
+        try:
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            for t in tasks:
+                t.cancel()
+            writer.close()
+            try:
+                await send({"type": "websocket.close", "code": 1000})
+            except Exception:  # noqa: BLE001
+                pass
 
 
 def enabled() -> bool:

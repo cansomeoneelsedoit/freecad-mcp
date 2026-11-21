@@ -175,6 +175,8 @@ def build_app(
         if aec_tools.enabled():
             # Signed, expiring /files/ links work without the bearer token.
             app = aec_tools.SignedDownloadMiddleware(app, token)
+            # FreeCAD's screen via noVNC: static page + key-checked WebSocket.
+            app = aec_tools.LiveViewMiddleware(app)
     return app
 
 
