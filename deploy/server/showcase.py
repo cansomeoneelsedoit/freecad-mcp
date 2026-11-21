@@ -224,4 +224,5 @@ async def main():
             await fetch(s, "showcase/wall_schedule.csv", "wall_schedule.csv")
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
